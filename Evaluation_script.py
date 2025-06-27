@@ -131,10 +131,10 @@ def evaluate_model(samples, interpreter, input_details, output_details):
 def plot_results(metrics):
     """Display evaluation metrics and ROC curve."""
     print("\nEvaluation Metrics:")
-    print(f"True Positive: {metrics['tp']:.4f}")
-    print(f"True Negative: {metrics['tn']:.4f}")
-    print(f"False Positive: {metrics['fp']:.4f}")
-    print(f"False Negative: {metrics['fn']:.4f}")
+    print(f"True Positive: {metrics['tp']}")
+    print(f"True Negative: {metrics['tn']}")
+    print(f"False Positive: {metrics['fp']}")
+    print(f"False Negative: {metrics['fn']}")
     print(f"Recall: {metrics['recall']:.4f}")
     print(f"F1 Score: {metrics['f1_score']:.4f}")
     print(f"False Positive Rate: {metrics['false_positive_rate']:.4f}")
