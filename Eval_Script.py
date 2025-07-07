@@ -1,6 +1,6 @@
 import os
 import numpy as np
-import tensorflow as tf
+import onnxruntime as ort
 from sklearn.metrics import confusion_matrix, roc_curve, auc, f1_score
 import matplotlib.pyplot as plt
 import scipy.io.wavfile
@@ -13,7 +13,6 @@ from utils import AudioFeatures
 SAMPLE_RATE = 16000  # Expected audio duration: 1 second
 
 def load_samples_from_config(config_path):
-    """Load positive and negative samples as (filepath, label) from YAML config."""
     with open(config_path) as f:
         config = yaml.safe_load(f)
 
@@ -42,27 +41,19 @@ def extract_features(audio, extractor, sr=16000):
     else:
         embedding = embedding[:16]
 
-    return embedding[None, ...]  # Shape: (1, 16, 96)
+    return embedding[None, ...]
 
+def predict(features, interpreter, input_details):
+    return interpreter.run(None, {input_details[0].name: features.astype(np.float32)})[0][0][0]
 
-def predict(features, interpreter, input_details, output_details, framework="tflite"):
-    """Run inference using either TFLite or ONNX."""
-    if framework == "tflite":
-        interpreter.set_tensor(input_details[0]['index'], features.astype(np.float32))
-        interpreter.invoke()
-        return interpreter.get_tensor(output_details[0]['index'])[0][0]
-    elif framework == "onnx":
-        return interpreter.run(None, {input_details[0].name: features.astype(np.float32)})[0][0][0]
-
-def evaluate_model(samples, extractor, interpreter, input_details, output_details, framework):
-    """Evaluate model on dataset and compute metrics."""
+def evaluate_model(samples, extractor, interpreter, input_details):
     y_true, y_pred = [], []
 
     for filepath, label in tqdm(samples, desc="Evaluating samples"):
         try:
             sr, audio = scipy.io.wavfile.read(filepath)
             features = extract_features(audio, extractor, sr=sr)
-            prediction = predict(features, interpreter, input_details, output_details, framework)
+            prediction = predict(features, interpreter, input_details)
             y_true.append(label)
             y_pred.append(prediction)
         except Exception as e:
@@ -119,7 +110,6 @@ def evaluate_model(samples, extractor, interpreter, input_details, output_detail
     return metrics
 
 def plot_results(metrics):
-    """Display evaluation metrics and ROC curve."""
     print("\nEvaluation Metrics:")
     print(f"True Positive: {metrics['tp']}")
     print(f"True Negative: {metrics['tn']}")
@@ -144,30 +134,24 @@ def plot_results(metrics):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", type=str, required=True, help="Path to .tflite or .onnx model")
+    parser.add_argument("--model", type=str, required=True, help="Path to .onnx model")
     parser.add_argument("--config", type=str, required=True, help="YAML config path with sample directories")
-    parser.add_argument("--framework", type=str, choices=["tflite", "onnx"], default="tflite", help="Model type")
     parser.add_argument("--melspec_model", type=str, default="", help="Path to melspec model (optional)")
     parser.add_argument("--embedding_model", type=str, default="", help="Path to embedding model (optional)")
     args = parser.parse_args()
 
-    # Load model
-    if args.framework == "tflite":
-        interpreter = tf.lite.Interpreter(model_path=args.model)
-        interpreter.allocate_tensors()
-        input_details = interpreter.get_input_details()
-        output_details = interpreter.get_output_details()
-    else:
-        import onnxruntime as ort
-        interpreter = ort.InferenceSession(args.model)
-        input_details = interpreter.get_inputs()
-        output_details = interpreter.get_outputs()
+    if not args.model.endswith(".onnx"):
+        raise ValueError("Only .onnx models are supported in this script.")
+
+    # Load ONNX model
+    interpreter = ort.InferenceSession(args.model)
+    input_details = interpreter.get_inputs()
 
     # Initialize feature extractor
     features_extractor = AudioFeatures(
         melspec_model_path=args.melspec_model,
         embedding_model_path=args.embedding_model,
-        inference_framework=args.framework,
+        inference_framework="onnx",
         device="cpu"
     )
 
@@ -175,6 +159,6 @@ if __name__ == "__main__":
     samples = load_samples_from_config(args.config)
 
     print("Evaluating model...")
-    metrics = evaluate_model(samples, features_extractor, interpreter, input_details, output_details, args.framework)
+    metrics = evaluate_model(samples, features_extractor, interpreter, input_details)
 
     plot_results(metrics)
